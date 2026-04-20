@@ -23,6 +23,16 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 0.6.1~4
+  espressif/cjson:
+    component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.19~2
   espressif/cmake_utilities:
     component_hash: 05165f30922b422b4b90c08845e6d449329b97370fbd06309803d8cb539d79e3
     dependencies:
@@ -230,10 +240,11 @@ dependencies:
     version: 5.5.3
 direct_dependencies:
 - espressif/button
+- espressif/cjson
 - espressif/esp_rainmaker
 - espressif/rmaker_app_network
 - espressif/rmaker_app_reset
 - idf
-manifest_hash: 3028ed9337544b93f499cb0f2ea43e79a11e0f4f842ce6f1fd9a0d42128d7c0c
+manifest_hash: 9542353122e939fedb14a07bf762f39629ca12a1d62d33633db24a190f388a26
 target: esp32c6
 version: 2.0.0

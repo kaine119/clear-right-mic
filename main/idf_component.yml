@@ -18,3 +18,4 @@ dependencies:
   espressif/rmaker_app_reset: ^1.0.0
   espressif/button: '*'
   espressif/esp_rainmaker: '*'
+  espressif/cjson: ^1.7.19~2
