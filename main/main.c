@@ -8,6 +8,7 @@
 
 #include "inference_api.h"
 #include "mic.h"
+#include "portmacro.h"
 #include "status_updater.h"
 
 #include "app_reset.h"
@@ -23,7 +24,7 @@
 #include <stdio.h>
 
 // Full reset button config
-#define RESET_BUTTON_GPIO          0
+#define RESET_BUTTON_GPIO          9 
 #define RESET_BUTTON_ACTIVE_LEVEL  0
 
 #define TAG "main"
@@ -57,24 +58,40 @@ void print_chip_info() {
     printf("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
 }
 
+button_handle_t btn_handle;
+esp_err_t err;
+QueueHandle_t recording_queue;
+QueueHandle_t api_call_queue;
+QueueHandle_t api_response_queue;
+QueueHandle_t status_updater_queue;
+TaskHandle_t mic_task_handle;
+TaskHandle_t status_updater_task_handle;
+TaskHandle_t api_task_handle;
+
+Status_Updater_Queue_Param status_updater_param;
+
+Recording_Item recording;
+Api_Call_Param api_call_param;
+Api_Response api_response;
+
 void app_main(void)
 {
     print_chip_info();
 
-    // // Create button using app_reset helper
-    // button_handle_t btn_handle = app_reset_button_create(RESET_BUTTON_GPIO, RESET_BUTTON_ACTIVE_LEVEL);
-    // if (btn_handle) {
-    //     // Register Wi-Fi reset (3 seconds) and Factory reset (10 seconds)
-    //     app_reset_button_register(btn_handle, 3, 10);
-    // }
+    // Create button using app_reset helper
+    btn_handle = app_reset_button_create(RESET_BUTTON_GPIO, RESET_BUTTON_ACTIVE_LEVEL);
+    if (btn_handle) {
+        // Register Wi-Fi reset (3 seconds) and Factory reset (10 seconds)
+        app_reset_button_register(btn_handle, 3, 10);
+    }
 
-    // // Initialize NVS.
-    // esp_err_t err = nvs_flash_init();
-    // if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    //     ESP_ERROR_CHECK(nvs_flash_erase());
-    //     err = nvs_flash_init();
-    // }
-    // ESP_ERROR_CHECK( err );
+    // Initialize NVS.
+    err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( err );
     
     // Initialise SPIFFS on the storage partition of flash.
     ESP_LOGI(TAG, "Initializing SPIFFS");
@@ -87,15 +104,15 @@ void app_main(void)
 
     // Use settings defined above to initialize and mount SPIFFS filesystem.
     // Note: esp_vfs_spiffs_register is an all-in-one convenience function.
-    esp_err_t ret = esp_vfs_spiffs_register(&spiffs_config);
+    err = esp_vfs_spiffs_register(&spiffs_config);
 
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
+    if (err != ESP_OK) {
+        if (err == ESP_FAIL) {
             ESP_LOGE(TAG, "Failed to mount or format filesystem");
-        } else if (ret == ESP_ERR_NOT_FOUND) {
+        } else if (err == ESP_ERR_NOT_FOUND) {
             ESP_LOGE(TAG, "Failed to find SPIFFS partition");
         } else {
-            ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(err));
         }
         return;
     }
@@ -129,48 +146,40 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "Read from file: '%s'", line);
 
-    // status_updater_init();
+    status_updater_init();
+
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
 
     // Create queues
-    QueueHandle_t recording_queue = xQueueCreate(5, sizeof(Recording_Item));
-    QueueHandle_t api_call_queue = xQueueCreate(10, sizeof(Api_Call_Param));
-    QueueHandle_t api_response_queue = xQueueCreate(10, sizeof(Api_Response));
-    QueueHandle_t status_updater_queue = xQueueCreate(10, sizeof(Status_Updater_Queue_Param));
+    recording_queue = xQueueCreate(5, sizeof(Recording_Item));
+    api_call_queue = xQueueCreate(5, sizeof(Api_Call_Param));
+    api_response_queue = xQueueCreate(5, sizeof(Api_Response));
+    status_updater_queue = xQueueCreate(5, sizeof(Status_Updater_Queue_Param));
 
     // Create tasks
-    TaskHandle_t mic_task_handle;
-    TaskHandle_t status_updater_task_handle;
-    TaskHandle_t api_task_handle;
-
     Api_Task_Params api_task_params = {
         .call_queue = api_call_queue,
         .response_queue = api_response_queue
     };
-
-    
-    xTaskCreate(mic_task, "mic_task", 40 * 1024, &recording_queue, 10, &mic_task_handle);
-    // xTaskCreate(api_task, "api_task", 40 * 1024, &api_task_params, 1, &api_task_handle);
+    xTaskCreate(mic_task, "mic_task", 40 * 1024, &recording_queue, 1, &mic_task_handle);
+    xTaskCreate(api_task, "api_task", 40 * 1024, &api_task_params, 1, &api_task_handle);
     // xTaskCreate(status_updater_task, "status_updater_task", 40 * 1024, &status_updater_queue, 1, &status_updater_task_handle);
     ESP_LOGI(TAG, "Tasks created");
 
-    Status_Updater_Queue_Param status_updater_param;
 
-    Recording_Item recording;
-    Api_Call_Param api_call_param;
-    Api_Response api_response;
 
     while (1) {
-        // if (xQueueReceive(recording_queue, &recording, 0)) {
-        //     api_call_param.audio_data = recording.buffer;
-        //     api_call_param.length = recording.length;
-        //     xQueueSend(api_call_queue, &api_call_param, 0);
-        // }
+        if (xQueueReceive(recording_queue, &recording, 0)) {
+            strcpy(api_call_param.filename, recording.filename);
+            api_call_param.length = recording.length;
+            xQueueSend(api_call_queue, &api_call_param, 0);
+        }
 
         // if (xQueueReceive(api_response_queue, &api_response, 0)) {
         //     status_updater_param.is_understandable = api_response.is_understandable;
         //     xQueueSend(status_updater_queue, &status_updater_param, 0);
         // }
 
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }

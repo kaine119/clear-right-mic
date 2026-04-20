@@ -4,7 +4,6 @@
 #include "esp_err.h"
 #include "hal/i2s_types.h"
 #include "soc/gpio_num.h"
-#include "test_file.h"
 
 #include "esp_log.h"
 #include "driver/i2s_std.h"
@@ -13,6 +12,7 @@
 #include <freertos/FreeRTOS.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define TAG "mic_task"
 
@@ -20,15 +20,12 @@
 #define BUFFER_LENGTH (1 * BYTE_RATE)
 #define TOTAL_FILE_LENGTH (RECORDING_DURATION_SEC * BYTE_RATE)
 
-
+i2s_chan_handle_t rx_handle;
+char i2s_raw_buffer[1 * SAMPLE_RATE * 3];
 
 static QueueHandle_t* recording_queue;
 int current_recording_idx = 0;
-
-i2s_chan_handle_t rx_handle;
-
-
-char i2s_raw_buffer[1 * SAMPLE_RATE * 3];
+Recording_Item current_recording;
 
 /**
  * Initialize the I2S microphone.
@@ -42,9 +39,9 @@ void init_microphone() {
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_24BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
-            .bclk = GPIO_NUM_2,
-            .ws = GPIO_NUM_11,
-            .din = GPIO_NUM_8,
+            .bclk = GPIO_NUM_3,
+            .ws = GPIO_NUM_2,
+            .din = GPIO_NUM_10,
             .dout = I2S_GPIO_UNUSED,
             .invert_flags = {
                 .mclk_inv = false,
@@ -62,9 +59,11 @@ void init_microphone() {
 }
 
 /**
- * Fill a buffer with .wav data over a duration of time.
+ * Fill a file with .wav data over one recording duration.
  */
-void record_sample(int slot_no) {
+void record_sample(int slot_no, Recording_Item* record) {
+    sprintf(record->filename, "/spiffs/%d.wav", slot_no);
+
     const wav_header_t wav_header = WAV_HEADER_PCM_DEFAULT(
         RECORDING_DURATION_SEC * SAMPLE_RATE,
         24,
@@ -74,7 +73,9 @@ void record_sample(int slot_no) {
 
     ESP_LOGI(TAG "/record_sample", "Beginning file %d", slot_no);
 
-    FILE* f = fopen("/spiffs/1.wav", "w");
+
+
+    FILE* f = fopen(record->filename, "w");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open file for writing");
         return;
@@ -87,8 +88,8 @@ void record_sample(int slot_no) {
     size_t bytes_read;
 
     while (written_bytes < TOTAL_FILE_LENGTH) {
-        if (i2s_channel_read(rx_handle, i2s_raw_buffer, 1 * SAMPLE_RATE * 3, &bytes_read, 1000) == ESP_OK) {
-            fwrite(&i2s_raw_buffer, bytes_read, 1, f);
+        if (i2s_channel_read(rx_handle, i2s_raw_buffer, SAMPLE_RATE * 3 / 2, &bytes_read, 1000) == ESP_OK) {
+            fwrite(i2s_raw_buffer, bytes_read, 1, f);
         } else {
             ESP_LOGE(TAG, "Write failed!");
         }
@@ -96,24 +97,25 @@ void record_sample(int slot_no) {
     }
 
     fclose(f);
+    struct stat new_file;
+    stat(record->filename, &new_file);
+    record->length = new_file.st_size;
     ESP_LOGI(TAG "/record_sample", "Written file %d", slot_no);
 }
 
 void mic_task(void* params) {
+    
     ESP_LOGI(TAG, "started");
     recording_queue = (QueueHandle_t*) params;
+
 
     init_microphone();
 
     while (1) {
-        record_sample(current_recording_idx);
+        record_sample(current_recording_idx, &current_recording);
 
-        // Recording_Item recording = {
-        //     .buffer = (char*) &recording_buffer,
-        //     .length = sizeof(Audio_Buffer)
-        // };
-        // xQueueSend(*recording_queue, &recording, 0);
+        xQueueSend(*recording_queue, &current_recording, 0);
         current_recording_idx = (current_recording_idx + 1) % NUM_RECORDING_BUFFERS;
-        vTaskDelay(20 / portTICK_PERIOD_MS);
+        vTaskDelay(60000 / portTICK_PERIOD_MS);
     }
 }

@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_rmaker_core.h"
 #include "esp_rmaker_standard_types.h"
+#include "portmacro.h"
 
 
 #define TAG "status_updater"
@@ -50,13 +51,13 @@ void status_updater_init() {
 }
 
 void status_updater_task(void* params) {
-    QueueHandle_t queue = (QueueHandle_t) params;
+    QueueHandle_t* queue = (QueueHandle_t*) params;
     Status_Updater_Queue_Param param;
 
     while (1) {
-        if (xQueueReceive(queue, &param, 0)) {
+        if (xQueueReceive(*queue, &param, 0)) {
             esp_rmaker_param_update_and_report(my_param, esp_rmaker_bool(param.is_understandable));
         }
-        vTaskDelay(1);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }

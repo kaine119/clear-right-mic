@@ -8,6 +8,7 @@
 #include "esp_crt_bundle.h"
 #include "cJSON.h"
 #include "gemini_config.h"
+#include <stdio.h>
 #include <string.h>
 
 #define TAG "inference_api"
@@ -16,10 +17,15 @@
 #define HTTP_RESPONSE_BUFFER_SIZE 8192
 #define HTTP_HEADER_BUFFER_SIZE 256
 
+#define HTTP_UPLOAD_CHUNK_SIZE (10 * 1024)
+
 
 static char http_request_buffer[HTTP_REQUEST_BUFFER_SIZE];
 static char http_response_buffer[HTTP_RESPONSE_BUFFER_SIZE];
 static char http_response_header_buffer[HTTP_HEADER_BUFFER_SIZE];
+
+static char http_upload_buffer[HTTP_UPLOAD_CHUNK_SIZE];
+
 static bool http_response_done;
 
 esp_err_t _http_event_handler(esp_http_client_event_t* e) {
@@ -108,11 +114,14 @@ esp_err_t initiate_audio_upload(int content_length, char* upload_url_buf) {
         vTaskDelay(10);
     }
 
-    ESP_LOGI(TAG "initiate_audio_upload()", "Response HTTP Status = %d, got upload url: %s", 
+
+    ESP_LOGI(TAG "/initiate_audio_upload()", "Response HTTP Status = %d, got upload url: %s", 
         esp_http_client_get_status_code(client), 
         http_response_header_buffer
     );
     
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
     strcpy(upload_url_buf, http_response_header_buffer);
 
     return ESP_OK;
@@ -126,29 +135,48 @@ esp_err_t initiate_audio_upload(int content_length, char* upload_url_buf) {
  * @param  file_uri   Final location of the URI will be copied to this buffer, to be used with future prompts.
  * @return            Upload status
  */
-esp_err_t start_audio_upload(char* file_buf, int length, char* upload_url, char* file_uri) {
+esp_err_t start_audio_upload(char* filename, int length, char* upload_url, char* file_uri) {
     esp_http_client_config_t config = {
         .method = HTTP_METHOD_POST,
         .url = upload_url,
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .event_handler = _http_event_handler
+        .event_handler = _http_event_handler,
+        .buffer_size_tx = HTTP_UPLOAD_CHUNK_SIZE,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_header(client, "X-Goog-Upload-Offset", "0");
     esp_http_client_set_header(client, "X-Goog-Upload-Command", "upload,finalize");
-    esp_http_client_set_post_field(client, file_buf, length);
 
-    esp_err_t ret = esp_http_client_perform(client);
+    // Read file and upload, in chunks
+    esp_err_t ret = esp_http_client_open(client, length);
     if (ret != ESP_OK) {
         esp_http_client_close(client);
         return ret;
     };
 
-    while (!http_response_done) {
+    size_t total_read_bytes = 0;
+    size_t read_bytes, sent_bytes;
+    FILE* f = fopen(filename, "r");
+    while (total_read_bytes < length) {
+        read_bytes = fread(http_upload_buffer, 1, HTTP_UPLOAD_CHUNK_SIZE, f);
+        sent_bytes = esp_http_client_write(client, http_upload_buffer, read_bytes);
+        ESP_LOGI(TAG, "Wrote %d bytes to stream", sent_bytes);
+        total_read_bytes += read_bytes;
         vTaskDelay(10);
     }
+    fclose(f);
+    ESP_LOGI(TAG, "Finished sending stream");
+
+    esp_http_client_fetch_headers(client);
+    esp_http_client_read_response(client, http_response_buffer, HTTP_RESPONSE_BUFFER_SIZE);
+
+    ESP_LOGI(TAG, "Finished reading response");
+
+
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
 
     // Parse returned JSON to grab URI. We want "server_response.file.uri".
     cJSON* server_response = cJSON_Parse(http_response_buffer);
@@ -171,8 +199,6 @@ bool call_model(char* file_uri) {
     
     cJSON* contents_0 = cJSON_CreateObject();
 
-    cJSON_AddStringToObject(contents_0, "role", "user");
-    
     cJSON* contents_0_parts = cJSON_CreateArray();
     cJSON* contents_0_parts_0 = cJSON_CreateObject();
     cJSON* contents_0_parts_0_filedata = cJSON_AddObjectToObject(contents_0_parts_0, "file_data");
@@ -209,7 +235,8 @@ bool call_model(char* file_uri) {
         .url = GEMINI_URL,
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .event_handler = _http_event_handler
+        .event_handler = _http_event_handler,
+        .timeout_ms = -1
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -219,12 +246,11 @@ bool call_model(char* file_uri) {
 
     if (esp_http_client_perform(client) != ESP_OK) {
         esp_http_client_close(client);
-        
         return false;
     }
 
 
-    ESP_LOGI(TAG, "HTTPS Status = %d, content_length = %" PRId64,
+    ESP_LOGI(TAG "/call_model", "HTTPS Status = %d, content_length = %" PRId64,
                 esp_http_client_get_status_code(client),
                 esp_http_client_get_content_length(client));
 
@@ -232,8 +258,9 @@ bool call_model(char* file_uri) {
         vTaskDelay(10);
     }
 
-    ESP_LOGI(TAG "call_model()", "Response:  %s", http_response_buffer);
+    ESP_LOGI(TAG "/call_model", "Response:  %s", http_response_buffer);
     esp_http_client_close(client);
+    esp_http_client_cleanup(client);
 
     return (strncmp(http_response_buffer, "YES", 3)) == 0;
 }
@@ -250,11 +277,12 @@ void api_task(void* p) {
 
     while (1) {
         if (xQueueReceive(params->call_queue, &call_params, 0)) {
+            ESP_LOGI(TAG, "New recording, filename %s, length %d", call_params.filename, call_params.length);
             initiate_audio_upload(call_params.length, upload_uri);
-            start_audio_upload(call_params.audio_data, call_params.length, upload_uri, file_uri);
+            start_audio_upload(call_params.filename, call_params.length, upload_uri, file_uri);
             response.is_understandable = call_model(file_uri);
             xQueueSend(params->response_queue, &response, 0);
         }
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }

@@ -18,7 +18,7 @@ struct _Api_Task_Params {
 typedef struct _Api_Task_Params Api_Task_Params;
 
 struct _Api_Call_Param {
-    char* audio_data;
+    char filename[16];
     int length;
 };
 

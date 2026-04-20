@@ -6,20 +6,14 @@
 #include "wav_header.h"
 
 #define NUM_RECORDING_BUFFERS 3
-#define RECORDING_DURATION_SEC 15
+#define RECORDING_DURATION_SEC 10
 #define SAMPLE_RATE 8000
 
-struct _Mic_Task_Queue_Item {
-    char* buffer; // .wav data, when available
+struct _Recording_Item {
+    char filename[16]; // File name of new .wav file
     int length;   // length of file, in bytes
 };
-typedef struct _Mic_Task_Queue_Item Recording_Item;
-
-struct _Audio_Buffer {
-    wav_header_t header;
-    char audio_data[RECORDING_DURATION_SEC * SAMPLE_RATE * 3];
-};
-typedef struct _Audio_Buffer Audio_Buffer;
+typedef struct _Recording_Item Recording_Item;
 
 void mic_task(void* params);
 
