@@ -4,18 +4,30 @@
  * SPDX-License-Identifier: CC0-1.0
  */
 
+#include "main.h"
 #include <stdio.h>
-#include <inttypes.h>
+#include "api.h"
+#include "esp_err.h"
+#include "esp_log.h"
+#include "freertos/idf_additions.h"
+#include "nvs_flash.h"
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_chip_info.h"
-#include "esp_flash.h"
-#include "esp_system.h"
+#include "app_reset.h"
+#include "status_updater.h"
 
-void app_main(void)
-{
-    /* Print chip information */
+// Full reset button config
+#define RESET_BUTTON_GPIO          0
+#define RESET_BUTTON_ACTIVE_LEVEL  0
+
+#define TAG "main"
+
+/**
+ * Print information about the ESP32 device in use, including supported RF features.
+ */
+void print_chip_info() {
     esp_chip_info_t chip_info;
     uint32_t flash_size;
     esp_chip_info(&chip_info);
@@ -39,12 +51,39 @@ void app_main(void)
            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
     printf("Minimum free heap size: %" PRIu32 " bytes\n", esp_get_minimum_free_heap_size());
+}
 
-    for (int i = 10; i >= 0; i--) {
-        printf("Restarting in %d seconds...\n", i);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+void app_main(void)
+{
+    print_chip_info();
+
+    // Create button using app_reset helper
+    button_handle_t btn_handle = app_reset_button_create(RESET_BUTTON_GPIO, RESET_BUTTON_ACTIVE_LEVEL);
+    if (btn_handle) {
+        // Register Wi-Fi reset (3 seconds) and Factory reset (10 seconds)
+        app_reset_button_register(btn_handle, 3, 10);
     }
-    printf("Restarting now.\n");
-    fflush(stdout);
-    esp_restart();
+
+    // Initialize NVS.
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( err );
+
+    status_updater_init();
+
+    // Create queues
+    // QueueHandle_t api_call_queue = xQueueCreate(100, sizeof(Api_Queue_Param));
+
+    // Create tasks
+    // TaskHandle_t api_task_handle;
+    // xTaskCreate(api_task, "api_task", 40 * 1024, api_call_queue, 2, &api_task_handle);
+    
+
+    while (1) {
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+    }
 }
