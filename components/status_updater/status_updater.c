@@ -1,6 +1,7 @@
 #include "status_updater.h"
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/queue.h"
 
 #include "app_network.h"
@@ -48,3 +49,14 @@ void status_updater_init() {
     esp_rmaker_start();
 }
 
+void status_updater_task(void* params) {
+    QueueHandle_t queue = (QueueHandle_t) params;
+    Status_Updater_Queue_Param param;
+
+    while (1) {
+        if (xQueueReceive(queue, &param, 0)) {
+            esp_rmaker_param_update_and_report(my_param, esp_rmaker_bool(param.is_understandable));
+        }
+        vTaskDelay(1);
+    }
+}

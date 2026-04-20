@@ -5,18 +5,20 @@
  */
 
 #include "main.h"
-#include <stdio.h>
-#include "api.h"
+
+#include "inference_api.h"
+#include "status_updater.h"
+
+#include "app_reset.h"
+#include "esp_chip_info.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
+#include "freertos/task.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_chip_info.h"
-#include "app_reset.h"
-#include "status_updater.h"
+#include <stdio.h>
 
 // Full reset button config
 #define RESET_BUTTON_GPIO          0
@@ -76,14 +78,25 @@ void app_main(void)
     status_updater_init();
 
     // Create queues
-    // QueueHandle_t api_call_queue = xQueueCreate(100, sizeof(Api_Queue_Param));
+    QueueHandle_t api_call_queue = xQueueCreate(100, sizeof(Api_Queue_Param));
+    QueueHandle_t status_updater_queue = xQueueCreate(10, sizeof(Status_Updater_Queue_Param));
 
     // Create tasks
-    // TaskHandle_t api_task_handle;
-    // xTaskCreate(api_task, "api_task", 40 * 1024, api_call_queue, 2, &api_task_handle);
+    TaskHandle_t status_updater_task_handle;
+    TaskHandle_t api_task_handle;
+    
+    xTaskCreate(status_updater_task, "status_updater_task", 40 * 1024, status_updater_queue, 1, &status_updater_task_handle);
+    xTaskCreate(api_task, "api_task", 40 * 1024, api_call_queue, 2, &api_task_handle);
     
 
+    Status_Updater_Queue_Param statusUpdaterParam = {
+        .is_understandable = false
+    };
+
     while (1) {
+        xQueueSend(status_updater_queue, &statusUpdaterParam, 0);
+        statusUpdaterParam.is_understandable = !statusUpdaterParam.is_understandable;
+
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }

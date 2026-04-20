@@ -4,9 +4,10 @@
 #endif
 
 void status_updater_init();
+void status_updater_task(void* params);
 
-struct {
+struct _Status_Updater_Queue_Param {
     bool is_understandable;
-} _Status_Updater_Call_Param;
+};
 
-typedef struct _Status_Updater_Call_Param Status_Updater_Call_Param;
+typedef struct _Status_Updater_Queue_Param Status_Updater_Queue_Param;
