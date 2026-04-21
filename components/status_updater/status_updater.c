@@ -53,6 +53,7 @@ void status_updater_init() {
 void status_updater_task(void* params) {
     QueueHandle_t* queue = (QueueHandle_t*) params;
     Status_Updater_Queue_Param param;
+    ESP_LOGI(TAG, "Started");
 
     while (1) {
         if (xQueueReceive(*queue, &param, 0)) {

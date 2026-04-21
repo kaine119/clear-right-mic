@@ -20,11 +20,11 @@
 #define HTTP_UPLOAD_CHUNK_SIZE (10 * 1024)
 
 
-static char http_request_buffer[HTTP_REQUEST_BUFFER_SIZE];
-static char http_response_buffer[HTTP_RESPONSE_BUFFER_SIZE];
-static char http_response_header_buffer[HTTP_HEADER_BUFFER_SIZE];
+static char http_request_buffer[HTTP_REQUEST_BUFFER_SIZE] = {0};
+static char http_response_buffer[HTTP_RESPONSE_BUFFER_SIZE] = {0};
+static char http_response_header_buffer[HTTP_HEADER_BUFFER_SIZE] = {0};
 
-static char http_upload_buffer[HTTP_UPLOAD_CHUNK_SIZE];
+static char http_upload_buffer[HTTP_UPLOAD_CHUNK_SIZE] = {0};
 
 static bool http_response_done;
 
@@ -270,8 +270,8 @@ void api_task(void* p) {
     Api_Call_Param call_params;
     Api_Response response;
 
-    char upload_uri[300];
-    char file_uri[100];
+    char upload_uri[300] = {0};
+    char file_uri[100] = {0};
 
     ESP_LOGI(TAG, "Started");
 

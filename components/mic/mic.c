@@ -116,6 +116,6 @@ void mic_task(void* params) {
 
         xQueueSend(*recording_queue, &current_recording, 0);
         current_recording_idx = (current_recording_idx + 1) % NUM_RECORDING_BUFFERS;
-        vTaskDelay(60000 / portTICK_PERIOD_MS);
+        vTaskDelay(15000 / portTICK_PERIOD_MS);
     }
 }

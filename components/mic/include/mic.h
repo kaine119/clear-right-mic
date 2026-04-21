@@ -5,9 +5,9 @@
 #include "freertos/queue.h"
 #include "wav_header.h"
 
-#define NUM_RECORDING_BUFFERS 3
+#define NUM_RECORDING_BUFFERS 5
 #define RECORDING_DURATION_SEC 10
-#define SAMPLE_RATE 8000
+#define SAMPLE_RATE 16000
 
 struct _Recording_Item {
     char filename[16]; // File name of new .wav file
