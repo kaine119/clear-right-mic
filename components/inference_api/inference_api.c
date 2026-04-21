@@ -143,6 +143,7 @@ esp_err_t start_audio_upload(char* filename, int length, char* upload_url, char*
         .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = _http_event_handler,
         .buffer_size_tx = HTTP_UPLOAD_CHUNK_SIZE,
+        .timeout_ms = -1
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);

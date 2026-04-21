@@ -161,9 +161,9 @@ void app_main(void)
         .call_queue = api_call_queue,
         .response_queue = api_response_queue
     };
-    xTaskCreate(mic_task, "mic_task", 40 * 1024, &recording_queue, 1, &mic_task_handle);
-    xTaskCreate(api_task, "api_task", 40 * 1024, &api_task_params, 1, &api_task_handle);
-    // xTaskCreate(status_updater_task, "status_updater_task", 40 * 1024, &status_updater_queue, 1, &status_updater_task_handle);
+    xTaskCreate(mic_task, "mic_task", 20 * 1024, &recording_queue, 1, &mic_task_handle);
+    xTaskCreate(api_task, "api_task", 20 * 1024, &api_task_params, 1, &api_task_handle);
+    xTaskCreate(status_updater_task, "status_updater_task", 20 * 1024, &status_updater_queue, 1, &status_updater_task_handle);
     ESP_LOGI(TAG, "Tasks created");
 
 
