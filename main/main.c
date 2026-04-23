@@ -175,10 +175,10 @@ void app_main(void)
             xQueueSend(api_call_queue, &api_call_param, 0);
         }
 
-        // if (xQueueReceive(api_response_queue, &api_response, 0)) {
-        //     status_updater_param.is_understandable = api_response.is_understandable;
-        //     xQueueSend(status_updater_queue, &status_updater_param, 0);
-        // }
+        if (xQueueReceive(api_response_queue, &api_response, 0)) {
+            status_updater_param.is_understandable = api_response.is_understandable;
+            xQueueSend(status_updater_queue, &status_updater_param, 0);
+        }
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }

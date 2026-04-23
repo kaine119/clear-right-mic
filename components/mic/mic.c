@@ -35,7 +35,7 @@ void init_microphone() {
     ESP_ERROR_CHECK(i2s_new_channel(&chan_config, NULL, &rx_handle));
 
     i2s_std_config_t rx_std_cfg = {
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_24BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,

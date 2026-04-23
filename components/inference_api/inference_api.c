@@ -34,14 +34,11 @@ esp_err_t _http_event_handler(esp_http_client_event_t* e) {
         case HTTP_EVENT_ON_CONNECTED:
             output_len = 0;
             http_response_done = false;
+            memset(http_response_buffer, 0, HTTP_RESPONSE_BUFFER_SIZE);
+            memset(http_response_header_buffer, 0, HTTP_HEADER_BUFFER_SIZE);
             break;
         case HTTP_EVENT_ON_DATA:
             ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", e->data_len);
-            // Clean the buffer in case of a new request
-            if (output_len == 0) {
-                // we are just starting to copy the output data into the use
-                memset(http_response_buffer, 0, HTTP_RESPONSE_BUFFER_SIZE);
-            }
 
             // If user_data buffer is configured, copy the response into the buffer
             int copy_len = 0;
@@ -122,6 +119,10 @@ esp_err_t initiate_audio_upload(int content_length, char* upload_url_buf) {
     
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
+
+    if (strlen(http_response_header_buffer) == 0) {
+        return ESP_ERR_HTTP_INCOMPLETE_DATA;
+    }
     strcpy(upload_url_buf, http_response_header_buffer);
 
     return ESP_OK;
@@ -163,9 +164,15 @@ esp_err_t start_audio_upload(char* filename, int length, char* upload_url, char*
     while (total_read_bytes < length) {
         read_bytes = fread(http_upload_buffer, 1, HTTP_UPLOAD_CHUNK_SIZE, f);
         sent_bytes = esp_http_client_write(client, http_upload_buffer, read_bytes);
-        ESP_LOGI(TAG, "Wrote %d bytes to stream", sent_bytes);
+        ESP_LOGI(TAG, "Read %d bytes, sent %d bytes to stream", read_bytes, sent_bytes);
+        if (read_bytes != sent_bytes) {
+            fclose(f);
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+            return ESP_ERR_HTTP_WRITE_DATA;
+        }
         total_read_bytes += read_bytes;
-        vTaskDelay(10);
+        vTaskDelay(1);
     }
     fclose(f);
     ESP_LOGI(TAG, "Finished sending stream");
@@ -178,6 +185,10 @@ esp_err_t start_audio_upload(char* filename, int length, char* upload_url, char*
 
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
+
+    if (strlen(http_response_buffer) == 0) {
+        return ESP_ERR_HTTP_INCOMPLETE_DATA;
+    }
 
     // Parse returned JSON to grab URI. We want "server_response.file.uri".
     cJSON* server_response = cJSON_Parse(http_response_buffer);
@@ -237,7 +248,7 @@ bool call_model(char* file_uri) {
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = _http_event_handler,
-        .timeout_ms = -1
+        .timeout_ms = 50000
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -263,7 +274,37 @@ bool call_model(char* file_uri) {
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
 
-    return (strncmp(http_response_buffer, "YES", 3)) == 0;
+    // Parse response to grab response.
+    // If any errors happen along the way, just return false. =)
+    if (strlen(http_response_buffer) == 0) return false;
+
+    cJSON* response = cJSON_Parse(http_response_buffer);
+    if (response == NULL) {
+        cJSON_Delete(response);
+        return false;
+    }
+
+    cJSON* response_candidates = cJSON_GetObjectItem(response, "candidates");
+    cJSON* response_candidates_0 = cJSON_GetArrayItem(response_candidates, 0);
+    cJSON* response_candidates_0_content = cJSON_GetObjectItem(response_candidates_0, "content");
+    cJSON* content_parts = cJSON_GetObjectItem(response_candidates_0_content, "parts");
+    cJSON* content_parts_0 = cJSON_GetArrayItem(content_parts, 0);
+    cJSON* content_parts_0_text = cJSON_GetObjectItem(content_parts_0, "text");
+
+    if (content_parts_0_text == NULL || !cJSON_IsString(content_parts_0_text)) {
+        ESP_LOGE(TAG "/call_model", "Model response was malformed, returning false");
+        cJSON_Delete(response);
+        return false;
+    }
+
+    char* inference_response = cJSON_GetStringValue(content_parts_0_text);
+
+    ESP_LOGI(TAG "/call_model", "Inference response:  %s", inference_response);
+    bool ret = (strncmp(inference_response, "YES", 3) == 0); 
+
+    cJSON_Delete(response);
+
+    return ret;
 }
 
 void api_task(void* p) {
@@ -275,11 +316,16 @@ void api_task(void* p) {
     char file_uri[100] = {0};
 
     ESP_LOGI(TAG, "Started");
+    esp_err_t err;
 
     while (1) {
         if (xQueueReceive(params->call_queue, &call_params, 0)) {
             ESP_LOGI(TAG, "New recording, filename %s, length %d", call_params.filename, call_params.length);
-            initiate_audio_upload(call_params.length, upload_uri);
+            err = initiate_audio_upload(call_params.length, upload_uri);
+            if (err != ESP_OK) {
+                continue;
+            }
+
             start_audio_upload(call_params.filename, call_params.length, upload_uri, file_uri);
             response.is_understandable = call_model(file_uri);
             xQueueSend(params->response_queue, &response, 0);
