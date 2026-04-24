@@ -12,7 +12,7 @@ Rainmaker attribute accordingly.
 
 ## Demo
 
-[Video](assets/vid.mp4)
+https://github.com/kaine119/clear-right-mic/raw/refs/heads/master/assets/vid.mp4
 
 ## Hardware setup
 
