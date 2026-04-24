@@ -102,6 +102,9 @@ void app_main(void)
         .format_if_mount_failed = true
     };
 
+    // Initialize SPIFFS and write/read a test file.
+    // Copied from ESP-IDF examples: https://github.com/espressif/esp-idf/blob/v6.0/examples/storage/spiffs/main/spiffs_example_main.c
+
     // Use settings defined above to initialize and mount SPIFFS filesystem.
     // Note: esp_vfs_spiffs_register is an all-in-one convenience function.
     err = esp_vfs_spiffs_register(&spiffs_config);
@@ -146,6 +149,8 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "Read from file: '%s'", line);
 
+    // Initialize the ESP-Rainmaker status updater.
+    // This also initializes network infra.
     status_updater_init();
 
     vTaskDelay(10000 / portTICK_PERIOD_MS);
@@ -166,15 +171,15 @@ void app_main(void)
     xTaskCreate(status_updater_task, "status_updater_task", 20 * 1024, &status_updater_queue, 1, &status_updater_task_handle);
     ESP_LOGI(TAG, "Tasks created");
 
-
-
     while (1) {
+        // When we get a new recording, send it off to the LLM API.
         if (xQueueReceive(recording_queue, &recording, 0)) {
             strcpy(api_call_param.filename, recording.filename);
             api_call_param.length = recording.length;
             xQueueSend(api_call_queue, &api_call_param, 0);
         }
 
+        // When we get a response from the LLM API, update this device's param on ESP-Rainmaker.
         if (xQueueReceive(api_response_queue, &api_response, 0)) {
             status_updater_param.is_understandable = api_response.is_understandable;
             xQueueSend(status_updater_queue, &status_updater_param, 0);
