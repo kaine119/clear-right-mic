@@ -10,6 +10,10 @@ audio, sends it up to the Gemini API to make an inference on whether it would
 make sense to a first-year engineering college student, and updates an ESP
 Rainmaker attribute accordingly.
 
+## Demo
+
+[Video](assets/vid.mp4)
+
 ## Hardware setup
 
 BOM:
